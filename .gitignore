@@ -1,0 +1,9 @@
+# Home Assistant
+fase2/docker/homeassistant/config/.storage/
+fase2/docker/homeassistant/config/*.log
+fase2/docker/homeassistant/config/*.db*
+fase2/docker/homeassistant/config/deps/
+
+# Mosquitto
+fase2/docker/mosquitto/data/
+fase2/docker/mosquitto/log/

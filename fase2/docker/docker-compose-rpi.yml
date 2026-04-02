@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto
+    container_name: mqtt-broker
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+
+  homeassistant:
+    image: homeassistant/home-assistant
+    container_name: home-assistant
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./homeassistant/config:/config
+    environment:
+      - TZ=America/Argentina/Buenos_Aires
+
