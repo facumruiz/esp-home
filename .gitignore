@@ -1,9 +1,49 @@
-# Home Assistant
-fase2/docker/homeassistant/config/.storage/
-fase2/docker/homeassistant/config/*.log
-fase2/docker/homeassistant/config/*.db*
-fase2/docker/homeassistant/config/deps/
+# =========================
+# GLOBAL
+# =========================
+.DS_Store
+.env
+*.swp
+*.tmp
 
-# Mosquitto
-fase2/docker/mosquitto/data/
-fase2/docker/mosquitto/log/
+# =========================
+# HOME ASSISTANT
+# =========================
+
+# Runtime interno (NO versionar)
+**/homeassistant/config/.storage/
+**/homeassistant/config/deps/
+
+# Base de datos
+**/homeassistant/config/*.db*
+**/homeassistant/config/*.db-shm
+**/homeassistant/config/*.db-wal
+
+# Logs
+**/homeassistant/config/*.log*
+**/homeassistant/config/home-assistant.log*
+
+# =========================
+# MOSQUITTO
+# =========================
+
+# Persistencia
+**/mosquitto/data/
+
+# Logs
+**/mosquitto/log/
+
+# =========================
+# DOCKER
+# =========================
+
+# Overrides locales (opcional)
+docker-compose.override.yml
+
+# =========================
+# FUTURO (firmware / builds)
+# =========================
+build/
+dist/
+*.bin
+*.elf
