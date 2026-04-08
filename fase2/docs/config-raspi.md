@@ -136,6 +136,38 @@ docker compose down       # detener
 
 ---
 
+
+## Paso 7 — Acceder a Home Assistant 🏠
+
+### Obtener IP de la Raspberry
+
+```yaml
+hostname -I
+```
+
+Ejemplo:
+```yaml
+192.168.100.160
+
+```
+### En tu PC:
+[http://192.168.100.160:8123](http://192.168.100.160:8123)
+
+```yaml
+http://192.168.100.160:8123
+
+```
+
+#### Opcional (mDNS):
+[http://raspberrypi.local:8123](http://raspberrypi.local:8123)
+
+```yaml
+http://raspberrypi.local:8123
+
+```
+
+---
+
 ## Tips
 
 **SSH sin contraseña (clave pública):**
@@ -156,6 +188,8 @@ vcgencmd measure_temp     # temperatura de la CPU
 ```
 
 ---
+
+
 
 
 *Raspberry Pi OS Lite (Bookworm) · Docker Engine · Abril 2026*
