@@ -49,3 +49,7 @@ dist/
 *.elf
 fase2/docker/homeassistant/config/.ha_run.lock
 fase2/docker/homeassistant/config/home-assistant.log*
+
+# HA runtime files
+fase2/docker/homeassistant/config/.ha_run.lock
+fase2/docker/homeassistant/config/home-assistant.log*
