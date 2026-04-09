@@ -76,6 +76,17 @@ Editar `main/config.h` antes de compilar:
 
 ---
 
+## Dependencias
+
+El componente `esp-mqtt` viene incluido en ESP-IDF — no requiere
+instalación externa. Solo asegurate de tener ESP-IDF v5.x:
+
+```bash
+idf.py --version
+```
+
+---
+
 ## Build y flash
 
 ```bash
@@ -114,14 +125,14 @@ mqtt:
 
 ## Diferencias respecto a Fase 2
 
-| Feature               | Fase 2          | Fase 3                      |
-|-----------------------|-----------------|-----------------------------|
-| Modo WiFi             | AP puro         | APSTA (AP + STA simultáneos)|
-| Control remoto        | HTTP local      | MQTT + HTTP                 |
-| Integración HA        | manual (HTTP)   | nativa MQTT con retain      |
-| Disponibilidad (`avail`) | —            | retain → estado real en HA  |
-| Reconexión automática | —               | FSM con reintentos          |
-| Pérdida de red        | sin control     | fallback transparente al AP |
+| Feature                  | Fase 2          | Fase 3                       |
+|--------------------------|-----------------|------------------------------|
+| Modo WiFi                | AP puro         | APSTA (AP + STA simultáneos) |
+| Control remoto           | HTTP local      | MQTT + HTTP                  |
+| Integración HA           | manual (HTTP)   | nativa MQTT con retain       |
+| Disponibilidad (`avail`) | —               | retain → estado real en HA   |
+| Reconexión automática    | —               | FSM con reintentos           |
+| Pérdida de red           | sin control     | fallback transparente al AP  |
 
 ---
 
@@ -131,11 +142,11 @@ mqtt:
 fase3/
 ├── CMakeLists.txt
 └── main/
-    ├── config.h          — pines, credenciales, topics, timeouts
-    ├── main.c            — arranque, tareas FreeRTOS
-    ├── led.h / led.c     — abstracción GPIO
+    ├── config.h                        — pines, credenciales, topics, timeouts
+    ├── main.c                          — arranque, tareas FreeRTOS
+    ├── led.h / led.c                   — abstracción GPIO
     ├── controller.h / controller.c
     ├── webserver.h / webserver.c
-    ├── network_manager.h / network_manager.c  — FSM WiFi
-    └── mqtt_manager.h / mqtt_manager.c        — ciclo de vida MQTT
+    ├── network_manager.h / network_manager.c   — FSM WiFi
+    └── mqtt_manager.h / mqtt_manager.c         — ciclo de vida MQTT
 ```
