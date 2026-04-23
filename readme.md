@@ -20,12 +20,14 @@ Implementaciones adicionales y experimentos sobre la base de las fases.
 | Módulo | Descripción | Stack |
 |--------|-------------|-------|
 | [M1](./modulos/m1/) | Tira WS2812B vía MQTT y webserver local | ESP-IDF, RMT, cJSON |
+| [M2](./modulos/m2/) | Sensor LM393 + modo automático con WS2812B | ESP-IDF, RMT, cJSON, GPIO |
 
 ## Hardware
 
 - ESP32 (cualquier variante con WiFi)
 - LED en GPIO2 (built-in en la mayoría de dev boards)
 - Tira WS2812B en GPIO18 (módulos)
+- Sensor luminosidad LM393 en GPIO15 (M2 en adelante)
 
 ## Requisitos generales
 
