@@ -1,0 +1,23 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "led.c"
+        "led_strip_ws.c"
+        "lux_sensor.c"
+        "controller.c"
+        "webserver.c"
+        "network_manager.c"
+        "mqtt_manager.c"
+        "espnow_master.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        led_strip
+        json
+        nvs_flash
+        esp_wifi
+        esp_event
+        esp_netif
+        esp_http_server
+        mqtt
+        driver
+)
