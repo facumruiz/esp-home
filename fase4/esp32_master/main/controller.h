@@ -8,7 +8,8 @@ typedef struct {
     Led       *led1;
     LedStrip  *strip1;
     LuxSensor *lux1;
-    bool       auto_mode;   // true = tira controlada por sensor
+    bool       auto_mode;    // true = tira controlada por sensores
+    bool       node_enabled; // true = sensor del nodo participa en auto
 } Controller;
 
 void controller_init(Controller *ctrl, Led *led1, LedStrip *strip1, LuxSensor *lux1);
