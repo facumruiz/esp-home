@@ -18,3 +18,4 @@ void mqtt_manager_publish_status(Controller *ctrl);
 
 #endif // MQTT_MANAGER_H
 void mqtt_manager_publish_lux(Controller *ctrl);
+void mqtt_manager_publish_motion(void);

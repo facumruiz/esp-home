@@ -1,3 +1,4 @@
+#include "espnow_master.h"
 #include "mqtt_manager.h"
 #include "config.h"
 #include "led.h"
@@ -186,4 +187,12 @@ void mqtt_manager_publish_lux(Controller *ctrl)
     esp_mqtt_client_publish(s_client, MQTT_TOPIC_LUX_STATUS,
                             payload, 0, 1, 1);   // QoS 1, retain
     ESP_LOGI("MQTT", "Lux publicado: %s", payload);
+}
+
+void mqtt_manager_publish_motion(void)
+{
+    if (!s_client || !atomic_load(&s_connected)) return;
+    const char *payload = g_node_status.motion ? "ON" : "OFF";
+    esp_mqtt_client_publish(s_client, MQTT_TOPIC_MOTION_STATUS, payload, 0, 1, 1);
+    ESP_LOGI("MQTT", "Motion publicado: %s", payload);
 }

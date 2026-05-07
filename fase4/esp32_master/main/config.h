@@ -38,3 +38,6 @@
 #define LUX_GPIO GPIO_NUM_15
 
 #define MQTT_TOPIC_LUX_STATUS "domotica/lux1/status"  // publica: "DARK" / "LIGHT"
+
+// ─── PIR (nodo remoto vía ESP-NOW) ───────────────────────────
+#define MQTT_TOPIC_MOTION_STATUS "domotica/motion1/status"  // publica: "ON" / "OFF"

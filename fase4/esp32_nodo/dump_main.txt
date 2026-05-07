@@ -1,0 +1,411 @@
+===== main/config.h =====
+#pragma once
+
+#include "driver/gpio.h"
+
+// ─── Hardware ────────────────────────────────────────────────
+#define LED1_PIN       GPIO_NUM_2
+#define STRIP_GPIO     GPIO_NUM_18
+#define STRIP_NUM_LEDS 8
+#define LUX_GPIO       GPIO_NUM_32
+
+// ─── ESP-NOW ─────────────────────────────────────────────────
+// MAC del ESP32 Master (el que tiene el AP)
+#define MASTER_MAC {0xE0, 0x5A, 0x1B, 0xD0, 0x6F, 0xE8}
+
+
+===== main/controller.c =====
+#include "controller.h"
+
+void controller_init(Controller *ctrl, Led *led1) {
+    ctrl->led1 = led1;
+}
+
+int controller_get_status(Controller *ctrl) {
+    return led_get_state(ctrl->led1);
+}
+
+
+===== main/controller.h =====
+#ifndef CONTROLLER_H
+#define CONTROLLER_H
+
+#include "led.h"
+
+typedef struct {
+    Led *led1;
+} Controller;
+
+void controller_init(Controller *ctrl, Led *led1);
+int controller_get_status(Controller *ctrl);
+
+#endif
+
+
+===== main/espnow_node.c =====
+#include "espnow_node.h"
+#include "config.h"
+#include "lux_sensor.h"
+#include "esp_now.h"
+#include "esp_wifi.h"
+#include "esp_netif.h"
+#include "esp_event.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <string.h>
+
+static const char *TAG = "ESPNOW_NODE";
+static LuxSensor  s_lux;
+static uint8_t    broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+static void sensor_task(void *arg) {
+    uint32_t counter = 0;
+    while (1) {
+        lux_sensor_read(&s_lux);
+        espnow_status_t status = {
+            .dark = lux_sensor_is_dark(&s_lux),
+            .counter = counter++,
+        };
+        esp_err_t err = esp_now_send(broadcast_mac, (uint8_t *)&status, sizeof(status));
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "Enviado: %s (cnt=%lu)", status.dark ? "OSCURO" : "HAY LUZ", (unsigned long)status.counter);
+        } else {
+            ESP_LOGE(TAG, "Error al enviar: %s", esp_err_to_name(err));
+        }
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+}
+
+void espnow_node_init(void) {
+    lux_sensor_init(&s_lux, LUX_GPIO);
+
+    esp_netif_init();
+    esp_event_loop_create_default();
+    esp_netif_create_default_wifi_sta();
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    esp_wifi_init(&cfg);
+    esp_wifi_set_mode(WIFI_MODE_STA);
+
+    // Configurar STA vacía para que no se conecte a ninguna red
+    wifi_config_t sta_config = { .sta = { .ssid = "", .password = "" } };
+    esp_wifi_set_config(WIFI_IF_STA, &sta_config);
+
+    esp_wifi_start();
+    esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+
+    esp_now_init();
+
+    esp_now_peer_info_t peer = {0};
+    memcpy(peer.peer_addr, broadcast_mac, 6);
+    peer.channel = 0;
+    peer.encrypt = false;
+    esp_now_add_peer(&peer);
+
+    ESP_LOGI(TAG, "Nodo listo — enviando broadcast cada 2s");
+
+    xTaskCreate(sensor_task, "sensor_task", 2048, NULL, 5, NULL);
+}
+
+
+===== main/espnow_node.h =====
+#pragma once
+#include <stdbool.h>
+#include <stdint.h>
+
+typedef struct {
+    bool dark;
+    uint32_t counter;       // <-- agregado
+} espnow_status_t;
+
+void espnow_node_init(void);
+
+
+===== main/led.c =====
+#include "led.h"
+#include <stdio.h>
+
+void led_init(Led *led, gpio_num_t pin) {
+    led->pin = pin;
+    led->state = 0;
+
+    gpio_set_direction(pin, GPIO_MODE_OUTPUT);
+    gpio_set_level(pin, 0);
+
+    printf("[LED] GPIO %d listo y apagado\n", pin);
+}
+
+void led_on(Led *led) {
+    led->state = 1;
+    gpio_set_level(led->pin, 1);
+}
+
+void led_off(Led *led) {
+    led->state = 0;
+    gpio_set_level(led->pin, 0);
+}
+
+void led_toggle(Led *led) {
+    led->state = !led->state;
+    gpio_set_level(led->pin, led->state);
+}
+
+int led_get_state(Led *led) {
+    return led->state;
+}
+
+
+===== main/led.h =====
+#ifndef LED_H
+#define LED_H
+
+#include "driver/gpio.h"
+
+typedef struct {
+    gpio_num_t pin;
+    int state;  // <-- agregamos el estado del LED
+} Led;
+
+void led_init(Led *led, gpio_num_t pin);
+void led_on(Led *led);
+void led_off(Led *led);
+void led_toggle(Led *led);
+int led_get_state(Led *led);
+
+#endif
+
+
+===== main/led_strip_ws.c =====
+#include "led_strip_ws.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+
+static const char *TAG = "LED_STRIP_WS";
+
+static inline uint8_t apply_brightness(uint8_t channel, uint8_t brightness) {
+    return (uint8_t)((uint32_t)channel * brightness / 255);
+}
+
+static void write_color(LedStrip *strip, uint8_t r, uint8_t g, uint8_t b) {
+    uint8_t br = apply_brightness(r, strip->brightness);
+    uint8_t bg = apply_brightness(g, strip->brightness);
+    uint8_t bb = apply_brightness(b, strip->brightness);
+    for (uint32_t i = 0; i < strip->num_leds; i++) {
+        led_strip_set_pixel(strip->handle, i, br, bg, bb);
+    }
+    led_strip_refresh(strip->handle);
+}
+
+static void hsv_to_rgb(uint16_t h, uint8_t s, uint8_t v,
+                        uint8_t *r, uint8_t *g, uint8_t *b) {
+    if (s == 0) { *r = *g = *b = v; return; }
+    uint8_t region = h / 60;
+    uint8_t rem    = (h % 60) * 255 / 60;
+    uint8_t p = (uint32_t)v * (255 - s) / 255;
+    uint8_t q = (uint32_t)v * (255 - ((uint32_t)s * rem / 255)) / 255;
+    uint8_t t = (uint32_t)v * (255 - ((uint32_t)s * (255 - rem) / 255)) / 255;
+    switch (region) {
+        case 0: *r = v; *g = t; *b = p; break;
+        case 1: *r = q; *g = v; *b = p; break;
+        case 2: *r = p; *g = v; *b = t; break;
+        case 3: *r = p; *g = q; *b = v; break;
+        case 4: *r = t; *g = p; *b = v; break;
+        default: *r = v; *g = p; *b = q; break;
+    }
+}
+
+esp_err_t led_strip_ws_init(LedStrip *strip, gpio_num_t gpio, uint32_t num_leds) {
+    strip->num_leds   = num_leds;
+    strip->state      = false;
+    strip->r = strip->g = strip->b = 255;
+    strip->brightness = 128;
+    strip->effect     = STRIP_EFFECT_NONE;
+
+    led_strip_config_t cfg = {
+        .strip_gpio_num         = gpio,
+        .max_leds               = num_leds,
+        .led_model              = LED_MODEL_WS2812,
+        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
+        .flags.invert_out       = false,
+    };
+    led_strip_rmt_config_t rmt_cfg = {
+        .clk_src        = RMT_CLK_SRC_DEFAULT,
+        .resolution_hz  = 10 * 1000 * 1000,
+        .flags.with_dma = false,
+    };
+
+    esp_err_t err = led_strip_new_rmt_device(&cfg, &rmt_cfg, &strip->handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error init RMT: %s", esp_err_to_name(err));
+        return err;
+    }
+    led_strip_clear(strip->handle);
+    ESP_LOGI(TAG, "WS2812 init OK — GPIO %d, %lu LEDs", gpio, (unsigned long)num_leds);
+    return ESP_OK;
+}
+
+void led_strip_ws_set_state(LedStrip *strip, bool on)              { strip->state      = on;         }
+void led_strip_ws_set_color(LedStrip *strip, uint8_t r, uint8_t g, uint8_t b) { strip->r = r; strip->g = g; strip->b = b; }
+void led_strip_ws_set_brightness(LedStrip *strip, uint8_t brightness) { strip->brightness = brightness; }
+void led_strip_ws_set_effect(LedStrip *strip, strip_effect_t effect)  { strip->effect     = effect;     }
+void led_strip_ws_clear(LedStrip *strip)                           { led_strip_clear(strip->handle);  }
+
+void led_strip_ws_apply(LedStrip *strip) {
+    if (!strip->state) { led_strip_clear(strip->handle); return; }
+    write_color(strip, strip->r, strip->g, strip->b);
+}
+
+void led_strip_ws_task(void *arg) {
+    LedStrip *strip   = (LedStrip *)arg;
+    uint16_t  hue     = 0;
+    uint8_t   fade_val = 0;
+    bool      fade_up  = true;
+    bool      blink_on = false;
+
+    while (1) {
+        if (!strip->state || strip->effect == STRIP_EFFECT_NONE) {
+            led_strip_ws_apply(strip);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+        switch (strip->effect) {
+            case STRIP_EFFECT_BLINK:
+                blink_on = !blink_on;
+                if (blink_on) write_color(strip, strip->r, strip->g, strip->b);
+                else          led_strip_clear(strip->handle);
+                vTaskDelay(pdMS_TO_TICKS(500));
+                break;
+
+            case STRIP_EFFECT_FADE: {
+                uint8_t br = apply_brightness(strip->r, fade_val);
+                uint8_t bg = apply_brightness(strip->g, fade_val);
+                uint8_t bb = apply_brightness(strip->b, fade_val);
+                write_color(strip, br, bg, bb);
+                if (fade_up) { fade_val += 5; if (fade_val >= strip->brightness) fade_up = false; }
+                else         { if (fade_val >= 5) fade_val -= 5; else fade_up = true; }
+                vTaskDelay(pdMS_TO_TICKS(30));
+                break;
+            }
+
+            case STRIP_EFFECT_RAINBOW: {
+                uint8_t r, g, b;
+                hsv_to_rgb(hue, 255, strip->brightness, &r, &g, &b);
+                write_color(strip, r, g, b);
+                hue = (hue + 3) % 360;
+                vTaskDelay(pdMS_TO_TICKS(20));
+                break;
+            }
+
+            default:
+                vTaskDelay(pdMS_TO_TICKS(100));
+                break;
+        }
+    }
+}
+
+
+===== main/led_strip_ws.h =====
+#pragma once
+
+#include "led_strip.h"
+#include "driver/gpio.h"
+#include "esp_err.h"
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef enum {
+    STRIP_EFFECT_NONE    = 0,
+    STRIP_EFFECT_BLINK   = 1,
+    STRIP_EFFECT_FADE    = 2,
+    STRIP_EFFECT_RAINBOW = 3,
+} strip_effect_t;
+
+typedef struct {
+    led_strip_handle_t handle;
+    uint32_t           num_leds;
+    bool               state;
+    uint8_t            r, g, b;
+    uint8_t            brightness;
+    strip_effect_t     effect;
+} LedStrip;
+
+esp_err_t led_strip_ws_init(LedStrip *strip, gpio_num_t gpio, uint32_t num_leds);
+void led_strip_ws_set_state(LedStrip *strip, bool on);
+void led_strip_ws_set_color(LedStrip *strip, uint8_t r, uint8_t g, uint8_t b);
+void led_strip_ws_set_brightness(LedStrip *strip, uint8_t brightness);
+void led_strip_ws_set_effect(LedStrip *strip, strip_effect_t effect);
+void led_strip_ws_clear(LedStrip *strip);
+void led_strip_ws_apply(LedStrip *strip);
+void led_strip_ws_task(void *arg);
+
+
+===== main/lux_sensor.c =====
+#include "lux_sensor.h"
+#include "driver/gpio.h"
+#include "esp_log.h"
+
+static const char *TAG = "LUX";
+
+void lux_sensor_init(LuxSensor *lux, gpio_num_t pin) {
+    lux->pin  = pin;
+    lux->dark = false;
+
+    gpio_config_t cfg = {
+        .pin_bit_mask = (1ULL << pin),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&cfg);
+
+    ESP_LOGI(TAG, "LM393 init OK — GPIO %d", pin);
+}
+
+void lux_sensor_read(LuxSensor *lux) {
+    // LM393: salida DO = 0 cuando hay luz, 1 cuando oscuro
+    lux->dark = (gpio_get_level(lux->pin) == 1);
+}
+
+bool lux_sensor_is_dark(LuxSensor *lux) {
+    return lux->dark;
+}
+
+
+===== main/lux_sensor.h =====
+#pragma once
+
+#include "driver/gpio.h"
+#include <stdbool.h>
+
+typedef struct {
+    gpio_num_t pin;
+    bool       dark;   // true = oscuro, false = hay luz
+} LuxSensor;
+
+void lux_sensor_init(LuxSensor *lux, gpio_num_t pin);
+void lux_sensor_read(LuxSensor *lux);
+bool lux_sensor_is_dark(LuxSensor *lux);
+
+
+===== main/main.c =====
+#include "espnow_node.h"
+#include "nvs_flash.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+void app_main(void) {
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
+        ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
+    espnow_node_init();
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
+
