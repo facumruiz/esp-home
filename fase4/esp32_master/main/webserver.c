@@ -98,20 +98,24 @@ esp_err_t lux_auto_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-// node/status solo devuelve enabled + auto — sensores solo si enabled
 esp_err_t node_status_handler(httpd_req_t *req) {
-    char resp[128];
-    if (global_ctrl->node_enabled) {
+    bool online = espnow_node_is_online();
+    char resp[140];
+    if (!global_ctrl->node_enabled) {
         snprintf(resp, sizeof(resp),
-            "{\"enabled\":true,\"auto\":%s,\"dark\":%s,\"motion\":%s}",
-            global_ctrl->auto_mode    ? "true" : "false",
-            g_node_status.dark        ? "true" : "false",
-            g_node_status.motion      ? "true" : "false");
-    } else {
-        // nodo deshabilitado: solo estado de control, sin datos de sensores
-        snprintf(resp, sizeof(resp),
-            "{\"enabled\":false,\"auto\":%s}",
+            "{\"enabled\":false,\"online\":%s,\"auto\":%s}",
+            online ? "true" : "false",
             global_ctrl->auto_mode ? "true" : "false");
+    } else if (!online) {
+        snprintf(resp, sizeof(resp),
+            "{\"enabled\":true,\"online\":false,\"auto\":%s}",
+            global_ctrl->auto_mode ? "true" : "false");
+    } else {
+        snprintf(resp, sizeof(resp),
+            "{\"enabled\":true,\"online\":true,\"auto\":%s,\"dark\":%s,\"motion\":%s}",
+            global_ctrl->auto_mode   ? "true" : "false",
+            g_node_status.dark       ? "true" : "false",
+            g_node_status.motion     ? "true" : "false");
     }
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
@@ -128,9 +132,8 @@ esp_err_t node_toggle_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-// pir/status retorna 204 si nodo deshabilitado — el JS lo detecta y para
 esp_err_t pir_status_handler(httpd_req_t *req) {
-    if (!global_ctrl->node_enabled) {
+    if (!global_ctrl->node_enabled || !espnow_node_is_online()) {
         httpd_resp_set_status(req, "204 No Content");
         httpd_resp_send(req, NULL, 0);
         return ESP_OK;
@@ -138,8 +141,8 @@ esp_err_t pir_status_handler(httpd_req_t *req) {
     char resp[128];
     snprintf(resp, sizeof(resp),
         "{\"motion\":%s,\"keep_on\":%s,\"hold_remaining_ms\":%lu,\"hold_total_ms\":%d,\"led_on\":%s}",
-        g_node_status.motion            ? "true" : "false",
-        global_ctrl->pir_keep_on        ? "true" : "false",
+        g_node_status.motion             ? "true" : "false",
+        global_ctrl->pir_keep_on         ? "true" : "false",
         (unsigned long)global_ctrl->pir_hold_remaining_ms,
         MOTION_HOLD_MS,
         led_get_state(global_ctrl->led1) ? "true" : "false");
@@ -157,7 +160,7 @@ esp_err_t root_handler(httpd_req_t *req) {
     "<style>"
     ":root{--bg:#0f0f1a;--card:#1a1a2e;--card2:#16213e;--accent:#7c4dff;"
     "--accent2:#00e5ff;--on:#00c853;--off:#ff1744;--text:#e0e0e0;--sub:#9e9e9e;"
-    "--motion:#ff9100}"
+    "--motion:#ff9100;--warn:#ffab00}"
     "*{box-sizing:border-box;margin:0;padding:0}"
     "body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);padding:16px;max-width:480px;margin:0 auto}"
     "h1{text-align:center;margin-bottom:20px;font-size:1.4em;font-weight:300;letter-spacing:2px;color:var(--accent2)}"
@@ -169,8 +172,13 @@ esp_err_t root_handler(httpd_req_t *req) {
     ".sensor-state{font-size:1.1em;font-weight:600}"
     ".sensor-state.dark{color:var(--accent2)}"
     ".sensor-state.light{color:#ffd740}"
-    ".node-disabled-banner{text-align:center;padding:14px;color:var(--sub);"
-    "  font-size:.85em;border:1px dashed rgba(255,255,255,.1);border-radius:12px;margin-bottom:10px}"
+    ".banner{text-align:center;padding:12px 14px;border-radius:12px;margin-bottom:10px;font-size:.82em;display:flex;align-items:center;justify-content:center;gap:8px}"
+    ".banner.disabled{background:rgba(158,158,158,.08);border:1px dashed rgba(255,255,255,.1);color:var(--sub)}"
+    ".banner.offline{background:rgba(255,68,68,.08);border:1px solid rgba(255,68,68,.25);color:#ff6b6b}"
+    ".signal-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-left:4px}"
+    ".signal-dot.online{background:var(--on);box-shadow:0 0 6px var(--on)}"
+    ".signal-dot.offline{background:var(--off)}"
+    ".signal-dot.disabled{background:var(--sub)}"
     ".pir-pill{display:flex;align-items:center;gap:10px;padding:10px 14px;"
     "  border-radius:14px;margin-bottom:10px;transition:all .3s;"
     "  border:1px solid rgba(255,255,255,.07)}"
@@ -220,6 +228,8 @@ esp_err_t root_handler(httpd_req_t *req) {
     "#toast.show{transform:translateX(-50%) translateY(0)}"
     "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}"
     ".pir-dot.active{animation:pulse 1.2s infinite}"
+    "@keyframes blink-off{0%,100%{opacity:1}50%{opacity:.3}}"
+    ".signal-dot.offline{animation:blink-off 2s infinite}"
     "</style></head><body>"
     "<h1>&#9964; ESP-HOME</h1>"
 
@@ -236,15 +246,19 @@ esp_err_t root_handler(httpd_req_t *req) {
 
     // ── Nodo ESP32 ──
     "<div class='card'>"
-    "<div class='card-title'>Nodo ESP32 &nbsp;<span id='chipNode' class='chip on'>ON</span></div>"
-
-    // Banner visible solo cuando nodo está OFF
-    "<div class='node-disabled-banner' id='nodeBanner' style='display:none'>"
-    "&#9888; Nodo deshabilitado — sensores pausados"
+    "<div class='card-title'>Nodo ESP32 &nbsp;"
+    "<span class='signal-dot disabled' id='signalDot'></span>"
+    "&nbsp;<span id='chipNode' class='chip disabled'>--</span>"
+    "</div>"
+    "<div class='banner disabled' id='bannerDisabled' style='display:none'>"
+    "&#9940; Sensor PIR deshabilitado"
+    "</div>"
+    "<div class='banner offline' id='bannerOffline' style='display:none'>"
+    "&#128268; Sin señal ESP-NOW — esperando nodo..."
     "</div>"
 
-    // Contenido sensores (se oculta cuando nodo OFF)
-    "<div id='nodeContent'>"
+    // Contenido sensores nodo
+    "<div id='nodeContent' style='display:none'>"
     "<div class='sensor-row' style='margin-bottom:8px'>"
     "<div style='display:flex;align-items:center;gap:10px'>"
     "<div class='sensor-icon' id='iconNode'>&#9728;</div>"
@@ -273,12 +287,12 @@ esp_err_t root_handler(httpd_req_t *req) {
     "<div class='divider'></div>"
     "</div>"
 
-    // Controles siempre visibles
+    // Controles — independientes entre si
     "<button class='toggle active' id='btnNode' onclick='toggleNode()'>"
-    "Nodo habilitado &nbsp;<span id='nodeLabel'>ON</span>"
+    "Sensor PIR &nbsp;<span id='nodeLabel'>ON</span>"
     "</button>"
     "<button class='toggle inactive' id='btnAuto' onclick='toggleAuto()'>"
-    "Modo Automatico &nbsp;<span id='autoLabel'>OFF</span>"
+    "Sensor de Luz &nbsp;<span id='autoLabel'>OFF</span>"
     "</button>"
     "</div>"
 
@@ -316,11 +330,9 @@ esp_err_t root_handler(httpd_req_t *req) {
 
     "<div id='toast'></div>"
     "<script>"
-    // nodeEnabled controla si se hacen fetches de sensores
-    "var nodeEnabled=true;"
+    "var nodeEnabled=true,nodeOnline=false;"
     "var pirHoldTotal=15000;"
-    "var pirTimer=null;"
-    "var nodeTimer=null;"
+    "var pirTimer=null,nodeTimer=null;"
 
     "function toast(m,d=2000){"
     "  var t=document.getElementById('toast');"
@@ -337,30 +349,47 @@ esp_err_t root_handler(httpd_req_t *req) {
     "  var s=Math.ceil(ms/1000);"
     "  return s>0?s+'s restantes':'--';}"
 
-    // Parar/arrancar timers de sensores del nodo
     "function startNodeTimers(){"
     "  if(!pirTimer)pirTimer=setInterval(loadPir,500);"
-    "  if(!nodeTimer)nodeTimer=setInterval(loadNodeSensors,2000);"
+    "  if(!nodeTimer)nodeTimer=setInterval(loadNodeStatus,2000);"
     "}"
     "function stopNodeTimers(){"
     "  if(pirTimer){clearInterval(pirTimer);pirTimer=null;}"
     "  if(nodeTimer){clearInterval(nodeTimer);nodeTimer=null;}"
     "}"
 
-    // Mostrar/ocultar contenido del nodo
-    "function setNodeUI(enabled){"
-    "  document.getElementById('nodeContent').style.display=enabled?'block':'none';"
-    "  document.getElementById('nodeBanner').style.display=enabled?'none':'block';"
+    "function applyNodeUI(enabled,online,d){"
+    "  nodeEnabled=enabled;nodeOnline=online;"
+    "  var sdot=document.getElementById('signalDot');"
+    "  sdot.className='signal-dot '+((!enabled)?'disabled':online?'online':'offline');"
     "  var chip=document.getElementById('chipNode');"
-    "  chip.innerText=enabled?'ON':'OFF';"
-    "  chip.className='chip '+(enabled?'on':'disabled');"
+    "  if(!enabled){chip.innerText='OFF';chip.className='chip disabled';}"
+    "  else if(!online){chip.innerText='OFFLINE';chip.className='chip off';}"
+    "  else{chip.innerText='ON';chip.className='chip on';}"
+    "  document.getElementById('bannerDisabled').style.display=(!enabled)?'flex':'none';"
+    "  document.getElementById('bannerOffline').style.display=(enabled&&!online)?'flex':'none';"
+    "  document.getElementById('nodeContent').style.display=(enabled&&online)?'block':'none';"
     "  var btn=document.getElementById('btnNode');"
     "  var nl=document.getElementById('nodeLabel');"
     "  if(enabled){btn.className='toggle active';nl.innerText='ON';}"
     "  else{btn.className='toggle inactive';nl.innerText='OFF';}"
+    "  if(d&&d.auto!==undefined){"
+    "    var ba=document.getElementById('btnAuto');"
+    "    var al=document.getElementById('autoLabel');"
+    "    if(d.auto){ba.className='toggle active';al.innerText='ON';}"
+    "    else{ba.className='toggle inactive';al.innerText='OFF';}"
+    "  }"
+    "  if(enabled&&online&&d&&d.dark!==undefined){"
+    "    var dark=d.dark;"
+    "    document.getElementById('iconNode').innerHTML=dark?'&#9790;':'&#9728;';"
+    "    var st=document.getElementById('stateNode');"
+    "    st.innerText=dark?'OSCURO':'HAY LUZ';"
+    "    st.className='sensor-state '+(dark?'dark':'light');"
+    "  }"
+    "  if(enabled&&online)startNodeTimers();"
+    "  else stopNodeTimers();"
     "}"
 
-    // Sensor local — siempre activo
     "function loadLux(){"
     "  fetch('/lux/status').then(r=>r.json()).then(d=>{"
     "    var dark=d.dark;"
@@ -371,36 +400,22 @@ esp_err_t root_handler(httpd_req_t *req) {
     "    var chip=document.getElementById('chipLocal');"
     "    chip.innerText=dark?'DARK':'LIGHT';"
     "    chip.className='chip '+(dark?'on':'off');"
-    "    var ba=document.getElementById('btnAuto');"
-    "    var al=document.getElementById('autoLabel');"
-    "    if(d.auto){ba.className='toggle active';al.innerText='ON';}"
-    "    else{ba.className='toggle inactive';al.innerText='OFF';}"
     "  });}"
 
-    // Sensores del nodo (luz) — solo si enabled
-    "function loadNodeSensors(){"
-    "  if(!nodeEnabled)return;"
+    "function loadNodeStatus(){"
     "  fetch('/node/status').then(r=>r.json()).then(d=>{"
-    "    if(!d.enabled)return;"
-    "    var dark=d.dark;"
-    "    document.getElementById('iconNode').innerHTML=dark?'&#9790;':'&#9728;';"
-    "    var st=document.getElementById('stateNode');"
-    "    st.innerText=dark?'OSCURO':'HAY LUZ';"
-    "    st.className='sensor-state '+(dark?'dark':'light');"
-    "  });}"
+    "    applyNodeUI(d.enabled,d.online!==false,d);"
+    "  }).catch(()=>{});}"
 
-    // PIR — solo si enabled, para si recibe 204
     "function loadPir(){"
-    "  if(!nodeEnabled)return;"
+    "  if(!nodeEnabled||!nodeOnline)return;"
     "  fetch('/pir/status').then(r=>{"
-    "    if(r.status===204){stopNodeTimers();return;}"
+    "    if(r.status===204){stopNodeTimers();return null;}"
     "    return r.json();"
     "  }).then(d=>{"
     "    if(!d)return;"
     "    pirHoldTotal=d.hold_total_ms;"
-    "    var motion=d.motion;"
-    "    var hold=d.keep_on&&!motion;"
-    "    var rem=d.hold_remaining_ms;"
+    "    var motion=d.motion,hold=d.keep_on&&!motion,rem=d.hold_remaining_ms;"
     "    var pill=document.getElementById('pirPill');"
     "    var dot=document.getElementById('pirDot');"
     "    var lbl=document.getElementById('pirLabel');"
@@ -426,8 +441,7 @@ esp_err_t root_handler(httpd_req_t *req) {
     "      sub.innerText=fmtMs(rem);"
     "      chipPir.className='chip hold';chipPir.innerText='HOLD';"
     "      wrap.style.display='block';"
-    "      var pct=pirHoldTotal>0?(rem/pirHoldTotal*100):0;"
-    "      bar.style.width=pct+'%';"
+    "      bar.style.width=(pirHoldTotal>0?(rem/pirHoldTotal*100):0)+'%';"
     "    }else{"
     "      pill.className='pir-pill inactive';"
     "      dot.className='pir-dot inactive';"
@@ -437,38 +451,26 @@ esp_err_t root_handler(httpd_req_t *req) {
     "      chipPir.className='chip off';chipPir.innerText='OFF';"
     "      wrap.style.display='none';"
     "    }"
-    "    if(d.led_on){"
-    "      ledDot.className='led-dot on';"
-    "      ledLbl.innerText=motion?'LED ON — movimiento':hold?'LED ON — retencion':'LED ON';"
-    "    }else{"
-    "      ledDot.className='led-dot off';"
-    "      ledLbl.innerText='LED apagado';"
-    "    }"
+    "    ledDot.className='led-dot '+(d.led_on?'on':'off');"
+    "    ledLbl.innerText=d.led_on?(motion?'LED ON — movimiento':hold?'LED ON — retencion':'LED ON'):'LED apagado';"
     "  }).catch(()=>{});}"
 
+    // independientes — cada uno toglea solo su estado
     "function toggleAuto(){"
     "  fetch('/lux/auto').then(r=>r.json()).then(d=>{"
     "    var ba=document.getElementById('btnAuto');"
     "    var al=document.getElementById('autoLabel');"
-    "    if(d.auto){ba.className='toggle active';al.innerText='ON';toast('Modo auto ON');}"
-    "    else{ba.className='toggle inactive';al.innerText='OFF';toast('Modo auto OFF');}"
+    "    if(d.auto){ba.className='toggle active';al.innerText='ON';toast('Sensor de Luz ON');}"
+    "    else{ba.className='toggle inactive';al.innerText='OFF';toast('Sensor de Luz OFF');}"
     "  });}"
 
     "function toggleNode(){"
     "  fetch('/node/toggle').then(r=>r.json()).then(d=>{"
-    "    nodeEnabled=d.enabled;"
-    "    setNodeUI(d.enabled);"
-    "    if(d.enabled){"
-    "      startNodeTimers();"
-    "      toast('Nodo ON — sensores activos');"
-    "    }else{"
-    "      stopNodeTimers();"
-    "      toast('Nodo OFF — sensores pausados');"
-    "    }"
+    "    if(!d.enabled){applyNodeUI(false,false,null);toast('Sensor PIR OFF');}"
+    "    else{loadNodeStatus();toast('Sensor PIR ON');}"
     "  });}"
 
-    "function setState(s){"
-    "  post('/strip/set',{state:s}).then(()=>toast('Tira: '+s));}"
+    "function setState(s){post('/strip/set',{state:s}).then(()=>toast('Tira: '+s));}"
     "function sendColor(){"
     "  var rgb=hexToRgb(document.getElementById('colorPick').value);"
     "  post('/strip/set',{color:rgb}).then(()=>toast('Color aplicado'));}"
@@ -484,17 +486,10 @@ esp_err_t root_handler(httpd_req_t *req) {
     "    document.getElementById('gpioStatus').innerText="
     "      'Estado: '+(d.led1?'ENCENDIDO':'APAGADO');});}"
 
-    // Init — consultar estado real del nodo antes de arrancar timers
-    "fetch('/node/status').then(r=>r.json()).then(d=>{"
-    "  nodeEnabled=d.enabled;"
-    "  setNodeUI(d.enabled);"
-    "  var ba=document.getElementById('btnAuto');"
-    "  var al=document.getElementById('autoLabel');"
-    "  if(d.auto){ba.className='toggle active';al.innerText='ON';}"
-    "  if(d.enabled){loadNodeSensors();loadPir();startNodeTimers();}"
-    "});"
     "loadLux();loadGpio();"
+    "loadNodeStatus();"
     "setInterval(loadLux,3000);"
+    "setInterval(loadNodeStatus,3000);"
     "setInterval(loadGpio,5000);"
     "</script></body></html>";
 

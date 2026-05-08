@@ -9,52 +9,66 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_wifi.h"
+#include "esp_log.h"
 #include <string.h>
 
+static const char *TAG = "MAIN";
+
+// ═══ Tarea LUX — controla tira según oscuridad del nodo ═══
 void lux_task(void *arg) {
     Controller *ctrl = (Controller *)arg;
     while (1) {
-        if (ctrl->auto_mode) {
-            bool dark_remote = g_node_status.dark;
-            led_strip_ws_set_state(ctrl->strip1, dark_remote);
+        if (!ctrl->auto_mode || !ctrl->node_enabled) {
+            // inactiva: revisar cada 5s en vez de 2s
+            vTaskDelay(pdMS_TO_TICKS(5000));
+            continue;
         }
+        led_strip_ws_set_state(ctrl->strip1, g_node_status.dark);
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
 
+// ═══ Tarea PIR con retención ═══
 void pir_task(void *arg) {
     Controller *ctrl = (Controller *)arg;
     TickType_t last_motion_tick = 0;
     bool motion_was_active = false;
 
     while (1) {
+        if (!ctrl->node_enabled) {
+            // nodo deshabilitado: apagar LED y dormir largo
+            ctrl->pir_keep_on           = false;
+            ctrl->pir_hold_remaining_ms = 0;
+            motion_was_active           = false;
+            led_off(ctrl->led1);
+            vTaskDelay(pdMS_TO_TICKS(5000));
+            continue;
+        }
+
         bool motion_now = g_node_status.motion;
 
         if (motion_now) {
-            last_motion_tick   = xTaskGetTickCount();
-            motion_was_active  = true;
+            last_motion_tick  = xTaskGetTickCount();
+            motion_was_active = true;
         }
 
-        bool keep_on = false;
+        bool     keep_on      = false;
         uint32_t remaining_ms = 0;
 
-        if (ctrl->node_enabled) {
-            if (motion_now) {
+        if (motion_now) {
+            keep_on      = true;
+            remaining_ms = MOTION_HOLD_MS;
+        } else if (motion_was_active) {
+            TickType_t now   = xTaskGetTickCount();
+            uint32_t elapsed = (now - last_motion_tick) * portTICK_PERIOD_MS;
+            if (elapsed < MOTION_HOLD_MS) {
                 keep_on      = true;
-                remaining_ms = MOTION_HOLD_MS;
-            } else if (motion_was_active) {
-                TickType_t now     = xTaskGetTickCount();
-                uint32_t elapsed   = (now - last_motion_tick) * portTICK_PERIOD_MS;
-                if (elapsed < MOTION_HOLD_MS) {
-                    keep_on      = true;
-                    remaining_ms = MOTION_HOLD_MS - elapsed;
-                } else {
-                    motion_was_active = false;
-                }
+                remaining_ms = MOTION_HOLD_MS - elapsed;
+            } else {
+                motion_was_active = false;
             }
         }
 
-        // Actualizar controller para que el webserver lo lea
         ctrl->pir_keep_on           = keep_on;
         ctrl->pir_hold_remaining_ms = remaining_ms;
 
@@ -65,7 +79,9 @@ void pir_task(void *arg) {
     }
 }
 
+// ═══ App main ═══
 void app_main(void) {
+    // NVS
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
         ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -73,6 +89,7 @@ void app_main(void) {
         nvs_flash_init();
     }
 
+    // WiFi — solo AP
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_ap();
@@ -93,23 +110,32 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
     esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+    ESP_LOGI(TAG, "AP iniciado: %s", WIFI_AP_SSID);
 
+    // ESP-NOW
     espnow_master_init();
 
+    // Hardware
     Led led1;
     led_init(&led1, LED1_PIN);
+
     LedStrip strip1;
     led_strip_ws_init(&strip1, STRIP_GPIO, STRIP_NUM_LEDS);
+
     LuxSensor lux1;
     lux_sensor_init(&lux1, LUX_GPIO);
 
+    // Controller
     Controller controller;
     controller_init(&controller, &led1, &strip1, &lux1);
 
-    xTaskCreate(webserver_task,    "webserver",  4096, &controller, 5, NULL);
-    xTaskCreate(led_strip_ws_task, "strip_task", 4096, &strip1,     3, NULL);
-    xTaskCreate(lux_task,          "lux_task",   4096, &controller, 2, NULL);
-    xTaskCreate(pir_task,          "pir_task",   2048, &controller, 1, NULL);
+    // Tareas
+    //                               nombre        stack   arg          prio  handle
+    xTaskCreate(webserver_task,    "webserver",    4096, &controller,  5,   NULL);
+    xTaskCreate(led_strip_ws_task, "strip_task",   4096, &strip1,      3,   NULL);
+    xTaskCreate(lux_task,          "lux_task",     2048, &controller,  2,   NULL);
+    xTaskCreate(pir_task,          "pir_task",     2048, &controller,  1,   NULL);
 
-    while (1) { vTaskDelay(pdMS_TO_TICKS(1000)); }
+    ESP_LOGI(TAG, "Sistema listo");
+    while (1) { vTaskDelay(pdMS_TO_TICKS(5000)); }
 }
