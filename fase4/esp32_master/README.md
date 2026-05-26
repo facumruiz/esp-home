@@ -1,142 +1,62 @@
-# Módulo M2 — Sensor de Luminosidad LM393 + WS2812B
+# Módulo M2 — Sensor LM393 + WS2812B + ESP-NOW
 
-Extiende M1 agregando un sensor digital de luminosidad LM393 que interactúa
-con la tira LED WS2812B. Incluye modo automático: la tira se enciende sola
-cuando oscurece y se apaga cuando hay luz.
+Extiende M1 agregando sensor de luminosidad LM393 y modo automático.
+En la fase 4 este módulo fue integrado en la arquitectura multi-dispositivo
+con comunicación ESP-NOW entre master y nodo.
 
 ---
 
 ## Hardware
 
-| Componente | Pin |
+### ESP32 Master
+
+| Componente | GPIO |
 |---|---|
-| LED simple (GPIO) | GPIO 2 |
-| Tira WS2812B (DATA) | GPIO 18 |
-| LM393 sensor (DO) | GPIO 15 |
+| LED simple | GPIO2 |
+| Tira 1 WS2812B manual | GPIO18 |
+| Tira 2 WS2812B PIR | GPIO27 |
+| Sensor LM393 | GPIO15 |
+| OLED SDA | GPIO21 |
+| OLED SCL | GPIO22 |
 
-Ajustar en `main/config.h`:
+### ESP32 Nodo
 
-```c
-#define LED1_PIN       GPIO_NUM_2
-#define STRIP_GPIO     GPIO_NUM_18
-#define STRIP_NUM_LEDS 30
-#define LUX_GPIO       GPIO_NUM_15
-```
-
-### Conexión LM393
-
-```
-LM393 VCC  →  3.3V ESP32
-LM393 GND  →  GND  ESP32
-LM393 DO   →  GPIO 15       ← salida digital (la que usamos)
-LM393 AO   →  no conectar   ← salida analógica, no se usa
-```
-
-El potenciómetro del módulo regula el umbral de sensibilidad.
-Girarlo hasta que el LED del módulo cambie al tapar el sensor con la mano.
+| Componente | GPIO |
+|---|---|
+| Sensor LM393 | GPIO32 |
+| Sensor PIR HC-SR501 | GPIO33 |
 
 ---
 
 ## Arquitectura
 
-```
-main/
-├── main.c              # Entry point + lux_task
-├── config.h            # Pines, WiFi, MQTT, timeouts
-├── controller.c/h      # Struct central: Led + LedStrip + LuxSensor + auto_mode
-├── led.c/h             # LED simple GPIO
-├── led_strip_ws.c/h    # Tira WS2812B (RMT backend)
-├── lux_sensor.c/h      # Sensor LM393 digital    ← NUEVO en M2
-├── mqtt_manager.c/h    # Cliente MQTT + publish lux
-├── network_manager.c/h # WiFi AP+STA con fallback
-└── webserver.c/h       # Panel web + API REST
-```
-
-### Diferencias respecto a M1
-
-| Característica | M1 | M2 |
-|---|---|---|
-| Sensor luminosidad | No | Si (LM393 GPIO15) |
-| Modo automatico | No | Si (tira reacciona al sensor) |
-| Topic MQTT lux | No | `domotica/lux1/status` |
-| Endpoint `/lux/status` | No | Si |
-| Endpoint `/lux/auto` | No | Si |
+    main/
+    espnow_master.c/h   Recepcion ESP-NOW + logica PIR tira 2
+    oled_display.c/h    Pantalla OLED SH1106 QR + dashboard
+    u8g2_esp32_hal.c/h  HAL I2C para u8g2
+    qrcodegen.c/h       Generacion QR offline
+    led_strip_ws.c/h    Tiras WS2812B RMT
+    lux_sensor.c/h      Sensor LM393
+    webserver.c/h       Panel web + API REST
+    network_manager.c/h WiFi AP
+    mqtt_manager.c/h    Cliente MQTT
+    controller.c/h      Struct central con estado del sistema
+    main.c              Entry point + lux_task + oled_task
 
 ---
 
-## Modo automático
+## Modo automatico
 
-Cuando el modo automático está activado, la tira responde al sensor:
-
-```
-Oscuro (DO = 1)  →  tira ON  (con el color y brillo configurados)
-Hay luz (DO = 0) →  tira OFF
-```
-
-El sensor se lee cada 5 segundos. El control manual de la tira sigue
-funcionando cuando el modo automático está OFF.
+- Tira 1: se enciende cuando el sensor de luz del nodo detecta oscuridad
+- Tira 2: se enciende al detectar movimiento PIR, se apaga tras 30 segundos
 
 ---
 
-## MQTT
+## Pantalla OLED SH1106 1.3"
 
-| Topic | Dirección | Descripción |
-|---|---|---|
-| `domotica/led1/set` | → ESP32 | Comando tira |
-| `domotica/led1/status` | ← ESP32 | Estado LED GPIO |
-| `domotica/led1/avail` | ← ESP32 | online / offline |
-| `domotica/lux1/status` | ← ESP32 | DARK / LIGHT |
-
-### Comando tira
-
-```json
-{
-  "state": "ON",
-  "color": { "r": 255, "g": 100, "b": 50 },
-  "brightness": 128,
-  "effect": "rainbow"
-}
-```
-
-Efectos: `none` · `blink` · `fade` · `rainbow`
-
-Compatibilidad legacy: `"1"` ON · `"0"` OFF
-
-### Sensor luminosidad
-
-```
-domotica/lux1/status → "DARK"   (oscuro, DO = 1)
-domotica/lux1/status → "LIGHT"  (hay luz, DO = 0)
-```
-
-Publicación cada 5 segundos con retain. Para Home Assistant:
-
-```yaml
-mqtt:
-  binary_sensor:
-    - name: "Luminosidad"
-      state_topic: "domotica/lux1/status"
-      payload_on: "DARK"
-      payload_off: "LIGHT"
-      device_class: light
-```
-
----
-
-## Panel web
-
-Acceder desde el AP del ESP32:
-
-```
-http://192.168.4.1
-```
-
-| Seccion | Funcion |
-|---|---|
-| Sensor Luminosidad | Muestra estado en tiempo real (refresca cada 3s) |
-| Modo automatico | Toggle ON/OFF — tira controlada por sensor |
-| Tira WS2812B | ON/OFF, color picker, brillo, efectos |
-| LED Simple | Toggle GPIO |
+- Pantalla 1 QR: muestra QR con URL http://192.168.4.1
+- Pantalla 2 Dashboard: estado de tiras, PIR, luz, modo auto y nodo
+- Rota cada 10 segundos automaticamente
 
 ---
 
@@ -144,35 +64,19 @@ http://192.168.4.1
 
 | Endpoint | Metodo | Descripcion |
 |---|---|---|
-| `/` | GET | Panel web |
-| `/status` | GET | Estado LED GPIO (`{"led1": 0/1}`) |
-| `/toggle` | GET | Toggle LED GPIO |
-| `/strip/status` | GET | Estado tira JSON |
-| `/strip/set` | POST | Control tira (JSON) |
-| `/lux/status` | GET | Estado sensor (`{"dark": bool, "auto": bool}`) |
-| `/lux/auto` | GET | Toggle modo automatico |
-
----
-
-## Dependencias
-
-- ESP-IDF v5.5+
-- `espressif/led_strip >= 2.5.0`
-- `cJSON` (incluido en ESP-IDF)
-- `espressif/mqtt`
-
-```bash
-idf.py add-dependency "espressif/led_strip>=2.5.0"
-```
-
----
-
-## Build y flash
-
-```bash
-idf.py build
-idf.py flash monitor
-```
+| / | GET | Panel web |
+| /status | GET | Estado LED GPIO |
+| /toggle | GET | Toggle LED GPIO |
+| /strip1/status | GET | Estado tira 1 |
+| /strip1/set | POST | Control tira 1 |
+| /strip2/status | GET | Estado tira 2 |
+| /strip2/set | POST | Control tira 2 |
+| /lux/status | GET | Estado sensor luz |
+| /lux/auto | GET | Toggle modo auto |
+| /node/status | GET | Estado nodo ESP-NOW |
+| /node/toggle | GET | Habilitar deshabilitar nodo |
+| /pir/status | GET | Estado PIR |
+| /pir/toggle | GET | Habilitar deshabilitar PIR |
 
 ---
 
@@ -180,7 +84,26 @@ idf.py flash monitor
 
 | Task | Stack | Prioridad | Funcion |
 |---|---|---|---|
-| `webserver_task` | 4096 | 5 | HTTP server |
-| `nm_task` | 4096 | 4 | WiFi + MQTT |
-| `led_strip_ws_task` | 4096 | 3 | Efectos tira |
-| `lux_task` | 4096 | 2 | Lectura sensor + modo auto |
+| webserver_task | 4096 | 5 | HTTP server |
+| nm_task | 4096 | 4 | WiFi AP |
+| strip_task | 4096 | 3 | Efectos tira 1 |
+| strip2_task | 4096 | 3 | Efectos tira 2 |
+| oled_task | 8192 | 3 | Pantalla OLED |
+| lux_task | 4096 | 2 | Sensor + modo auto |
+
+---
+
+## Dependencias
+
+- ESP-IDF v5.5.1
+- espressif/led_strip >= 2.5.0
+- u8g2 driver OLED
+- qrcodegen QR offline
+- cJSON incluido en ESP-IDF
+
+---
+
+## Build y flash
+
+    idf.py build
+    idf.py flash monitor
