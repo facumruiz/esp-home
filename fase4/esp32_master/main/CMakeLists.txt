@@ -1,3 +1,5 @@
+file(GLOB U8G2_SOURCES "u8g2/*.c")
+
 idf_component_register(
     SRCS
         "main.c"
@@ -5,19 +7,17 @@ idf_component_register(
         "led_strip_ws.c"
         "lux_sensor.c"
         "controller.c"
-        "webserver.c"
         "network_manager.c"
         "mqtt_manager.c"
         "espnow_master.c"
-    INCLUDE_DIRS "."
+        "webserver.c"
+        "oled_display.c"
+        "qrcodegen.c"
+        "u8g2_esp32_hal.c"
+        ${U8G2_SOURCES}
+    INCLUDE_DIRS "." "u8g2"
     REQUIRES
-        led_strip
-        json
-        nvs_flash
-        esp_wifi
-        esp_event
-        esp_netif
-        esp_http_server
-        mqtt
-        driver
+        esp_wifi esp_event esp_netif nvs_flash
+        esp_http_server json led_strip mqtt
+        driver esp_timer
 )

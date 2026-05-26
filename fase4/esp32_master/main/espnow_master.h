@@ -1,8 +1,7 @@
 #pragma once
+#include "controller.h"
 #include <stdbool.h>
 #include <stdint.h>
-
-#define NODE_TIMEOUT_MS  10000
 
 typedef struct {
     bool     dark;
@@ -12,5 +11,6 @@ typedef struct {
 
 extern espnow_status_t g_node_status;
 
-bool espnow_node_is_online(void);
 void espnow_master_init(void);
+void espnow_master_init_with_ctrl(Controller *ctrl);
+bool espnow_node_is_online(void);
