@@ -8,6 +8,7 @@ idf_component_register(
         "lux_sensor.c"
         "controller.c"
         "network_manager.c"
+        "config_manager.c"
         "mqtt_manager.c"
         "espnow_master.c"
         "webserver.c"

@@ -26,6 +26,23 @@ void lux_task(void *arg) {
     }
 }
 
+void net_led_task(void *arg) {
+    while (1) {
+        nm_state_t st = nm_get_state();
+        if (st == NM_STATE_MQTT) {
+            led_on(((Controller *)arg)->led1);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        } else if (st == NM_STATE_STA) {
+            led_on(((Controller *)arg)->led1);
+            vTaskDelay(pdMS_TO_TICKS(300));
+            led_off(((Controller *)arg)->led1);
+            vTaskDelay(pdMS_TO_TICKS(300));
+        } else {
+            led_off(((Controller *)arg)->led1);
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+    }
+}
 void app_main(void)
 {
     esp_err_t ret = nvs_flash_init();
@@ -59,9 +76,11 @@ void app_main(void)
     xTaskCreate(led_strip_ws_task, "strip_task",  4096, &strip1,     3, NULL);
     xTaskCreate(led_strip_ws_task, "strip2_task", 4096, &strip2,     3, NULL);
     xTaskCreate(oled_task,    "oled_task",   8192, &controller, 3, NULL);
+    xTaskCreate(net_led_task, "net_led",    2048, &controller, 2, NULL);
     xTaskCreate(lux_task,          "lux_task",    4096, &controller, 2, NULL);
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
+
