@@ -1,0 +1,33 @@
+# Build output
+/build/
+/CMakeCache.txt
+/CMakeFiles/
+/Makefile
+/ninja.build
+/*.cmake
+
+# Eclipse/VSCode/IDE files
+/.vscode/
+/.idea/
+/*.code-workspace
+
+# ESP-IDF specific
+/sdkconfig
+/sdkconfig.old
+/esp-idf/components/**/CMakeFiles/
+/esp-idf/components/**/build/
+*.log
+
+# Python / envs
+/venv/
+/.env
+*.pyc
+__pycache__/
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# Git secrets
+*.key
+*.pem

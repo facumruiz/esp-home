@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP-HOME</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#7c4dff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+:root{--bg:#0f0f1a;--card:#1a1a2e;--card2:#16213e;--accent:#7c4dff;
+--accent2:#00e5ff;--on:#00c853;--off:#ff1744;--text:#e0e0e0;--sub:#9e9e9e}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);
+  padding:16px;max-width:520px;margin:0 auto}
+.card{background:var(--card);border-radius:20px;padding:16px;margin-bottom:14px;
+  box-shadow:0 4px 20px rgba(0,0,0,.4)}
+.card-title{font-size:.7em;color:var(--sub);text-transform:uppercase;letter-spacing:2px;
+  margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.card-title::before{content:'';display:block;width:3px;height:14px;
+  background:var(--accent);border-radius:2px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+.strip-card{background:var(--card);border-radius:20px;padding:14px;
+  box-shadow:0 4px 20px rgba(0,0,0,.4)}
+.strip-card .card-title::before{background:var(--accent2)}
+.state-dot{width:10px;height:10px;border-radius:50%;display:inline-block;
+  margin-right:6px;flex-shrink:0}
+.state-dot.on{background:var(--on);box-shadow:0 0 6px var(--on)}
+.state-dot.off{background:var(--sub)}
+.state-label{font-size:.95em;font-weight:600;display:flex;align-items:center;margin-bottom:10px}
+.row{display:flex;gap:6px;margin-bottom:10px}
+.btn{flex:1;padding:10px 6px;border:none;border-radius:10px;font-size:.8em;
+  font-weight:600;cursor:pointer;transition:all .2s}
+.btn:active{transform:scale(.95)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-on{background:rgba(0,200,83,.2);color:var(--on);border:1px solid rgba(0,200,83,.3)}
+.btn-off{background:rgba(255,23,68,.2);color:var(--off);border:1px solid rgba(255,23,68,.3)}
+.btn-fx{background:rgba(0,229,255,.1);color:var(--accent2);border:1px solid rgba(0,229,255,.2);
+  font-size:.72em;padding:8px 4px}
+.btn-fx.active{background:rgba(0,229,255,.25);border-color:var(--accent2)}
+.chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:.68em;font-weight:700}
+.chip.on{background:rgba(0,200,83,.15);color:var(--on);border:1px solid rgba(0,200,83,.3)}
+.chip.off{background:rgba(255,23,68,.15);color:var(--off);border:1px solid rgba(255,23,68,.3)}
+.chip.motion{background:rgba(255,145,0,.2);color:#ff9100;border:1px solid rgba(255,145,0,.4)}
+label{font-size:.72em;color:var(--sub);display:block;margin-bottom:4px;margin-top:8px}
+input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:2px}
+.color-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.color-preview{width:32px;height:32px;border-radius:8px;flex-shrink:0;
+  border:1px solid rgba(255,255,255,.1)}
+.sensor-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.signal-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.signal-dot.online{background:var(--on);box-shadow:0 0 5px var(--on)}
+.signal-dot.offline{background:var(--off)}
+.signal-dot.disabled{background:var(--sub)}
+.pir-pill{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:12px;
+  margin-bottom:8px;border:1px solid rgba(255,255,255,.07)}
+.pir-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.pir-dot.active{background:#ff9100;box-shadow:0 0 7px #ff9100}
+.pir-dot.inactive{background:var(--sub)}
+.sw-row{display:flex;align-items:center;justify-content:space-between;padding:11px 0;
+  border-bottom:1px solid rgba(255,255,255,.05)}
+.sw-row:last-child{border-bottom:none}
+.sw-info{display:flex;flex-direction:column;gap:3px}
+.sw-label{font-size:.88em;font-weight:500;color:var(--text)}
+.sw-sub{font-size:.72em;color:var(--sub)}
+.ios-sw{position:relative;width:48px;height:28px;flex-shrink:0}
+.ios-sw input{opacity:0;width:0;height:0}
+.ios-track{position:absolute;inset:0;background:rgba(255,255,255,.12);border-radius:28px;
+  cursor:pointer;transition:.3s}
+.ios-sw input:checked+.ios-track{background:#34c759}
+.ios-track::before{content:'';position:absolute;width:22px;height:22px;left:3px;top:3px;
+  background:#fff;border-radius:50%;transition:.3s;box-shadow:0 2px 5px rgba(0,0,0,.3)}
+.ios-sw input:checked+.ios-track::before{transform:translateX(20px)}
+
+/* BLE connect screen */
+#ble-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:80vh;text-align:center}
+#ble-screen h2{font-size:1.3em;font-weight:300;letter-spacing:2px;color:var(--accent2);
+  margin-bottom:8px}
+#ble-screen p{color:var(--sub);font-size:.88em;margin-bottom:24px;max-width:280px}
+.btn-connect{background:linear-gradient(135deg,var(--accent),var(--accent2));
+  color:#fff;border:none;border-radius:16px;padding:16px 32px;font-size:1em;
+  font-weight:600;cursor:pointer;transition:all .2s;letter-spacing:.5px}
+.btn-connect:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(124,77,255,.4)}
+.btn-connect:active{transform:scale(.97)}
+.ble-status{display:flex;align-items:center;gap:8px;margin-top:16px;font-size:.8em;
+  color:var(--sub)}
+.ble-dot{width:8px;height:8px;border-radius:50%;background:var(--sub)}
+.ble-dot.connecting{background:var(--accent);animation:pulse .8s infinite}
+.ble-dot.connected{background:var(--on)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* Modal cfg */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;
+  align-items:center;justify-content:center;z-index:100;padding:16px}
+.modal-overlay.open{display:flex}
+.modal{background:var(--card);border-radius:20px;padding:20px;width:100%;
+  max-width:440px;max-height:90vh;overflow-y:auto}
+.modal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.modal-title{font-size:1em;font-weight:600;color:var(--text)}
+.modal-close{background:none;border:none;color:var(--sub);font-size:1.5em;cursor:pointer;line-height:1}
+.inp{width:100%;padding:11px 14px;background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,255,255,.1);border-radius:10px;color:var(--text);
+  font-size:.9em;margin-bottom:10px;outline:none}
+.inp:focus{border-color:var(--accent)}
+.cfg-btn{width:100%;padding:12px;border:none;border-radius:12px;font-size:.9em;
+  font-weight:600;cursor:pointer;margin-bottom:8px;transition:all .2s}
+.cfg-btn:disabled{opacity:.35;cursor:not-allowed}
+.cfg-btn-primary{background:rgba(124,77,255,.3);color:var(--accent);
+  border:1px solid rgba(124,77,255,.4)}
+.cfg-btn-danger{background:rgba(255,23,68,.15);color:var(--off);
+  border:1px solid rgba(255,23,68,.3)}
+.sbadge{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;
+  border-radius:20px;font-size:.72em;font-weight:700;margin-bottom:12px}
+.sbadge.ok{background:rgba(0,200,83,.15);color:var(--on);border:1px solid rgba(0,200,83,.3)}
+.sbadge.err{background:rgba(255,23,68,.15);color:var(--off);border:1px solid rgba(255,23,68,.3)}
+.cfg-div{height:1px;background:rgba(255,255,255,.06);margin:14px 0}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(80px);
+  background:var(--card2);color:var(--text);padding:10px 20px;border-radius:20px;
+  font-size:.8em;transition:transform .3s;box-shadow:0 4px 20px rgba(0,0,0,.5);
+  border:1px solid rgba(255,255,255,.1);pointer-events:none}
+#toast.show{transform:translateX(-50%) translateY(0)}
+#main{display:none}
+</style>
+</head>
+<body>
+
+<!-- ── Pantalla de conexión BLE ─────────────────────────────────────────────── -->
+<div id="ble-screen">
+  <h2>&#9964; ESP-HOME</h2>
+  <p>Conectá directamente al dispositivo por Bluetooth sin necesidad de WiFi</p>
+  <button class="btn-connect" id="btnConnect" onclick="connectBLE()">
+    &#x1F4F6; Conectar por Bluetooth
+  </button>
+  <div class="ble-status">
+    <div class="ble-dot" id="bleDot"></div>
+    <span id="bleStatusText">Listo para conectar</span>
+  </div>
+  <p style="margin-top:24px;font-size:.75em;opacity:.5">
+    Requiere Chrome / Edge con HTTPS.<br>
+    iOS: Safari 16.4+ en iPhone.
+  </p>
+</div>
+
+<!-- ── Interfaz principal (visible tras conectar) ─────────────────────────── -->
+<div id="main">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+    <h1 style="font-size:1.4em;font-weight:300;letter-spacing:2px;color:var(--accent2)">
+      &#9964; ESP-HOME
+    </h1>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="signal-dot online" id="bleConnDot" title="BLE conectado"></div>
+      <button onclick="openCfg()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+        cursor:pointer;color:var(--sub);font-size:1.2em;padding:6px 10px;border-radius:10px">
+        &#9881;
+      </button>
+    </div>
+  </div>
+
+  <!-- Tiras LED -->
+  <div class="two-col">
+    <div class="strip-card">
+      <div class="card-title">Tira 1 GPIO27</div>
+      <div class="state-label">
+        <span class="state-dot off" id="s1dot"></span><span id="s1state">OFF</span>
+      </div>
+      <div class="row">
+        <button class="btn btn-on"  onclick="strip(1,'s',true)">ON</button>
+        <button class="btn btn-off" onclick="strip(1,'s',false)">OFF</button>
+      </div>
+      <label>Color</label>
+      <div class="color-row">
+        <div class="color-preview" id="s1preview" style="background:#ff6400"></div>
+        <input type="color" id="s1color" value="#ff6400"
+          style="flex:1;height:32px;border:none;border-radius:8px;cursor:pointer;background:none"
+          oninput="stripColor(1)">
+      </div>
+      <label>Brillo <span id="s1briVal">128</span></label>
+      <input type="range" min="1" max="255" value="128" id="s1bri"
+        oninput="document.getElementById('s1briVal').innerText=this.value"
+        onchange="strip(1,'br',+this.value)">
+      <label>Efecto</label>
+      <div class="row">
+        <button class="btn btn-fx active" id="s1fx-0" onclick="strip(1,'ef',0)">&#9632;</button>
+        <button class="btn btn-fx" id="s1fx-1" onclick="strip(1,'ef',1)">Blink</button>
+        <button class="btn btn-fx" id="s1fx-2" onclick="strip(1,'ef',2)">Fade</button>
+        <button class="btn btn-fx" id="s1fx-3" onclick="strip(1,'ef',3)">&#127752;</button>
+      </div>
+    </div>
+
+    <div class="strip-card">
+      <div class="card-title">Tira 2 PIR</div>
+      <div class="state-label">
+        <span class="state-dot off" id="s2dot"></span><span id="s2state">OFF</span>
+      </div>
+      <div class="row">
+        <button class="btn btn-on"  onclick="strip(2,'s',true)">ON</button>
+        <button class="btn btn-off" onclick="strip(2,'s',false)">OFF</button>
+      </div>
+      <label>Color</label>
+      <div class="color-row">
+        <div class="color-preview" id="s2preview" style="background:#ffc864"></div>
+        <input type="color" id="s2color" value="#ffc864"
+          style="flex:1;height:32px;border:none;border-radius:8px;cursor:pointer;background:none"
+          oninput="stripColor(2)">
+      </div>
+      <label>Brillo <span id="s2briVal">200</span></label>
+      <input type="range" min="1" max="255" value="200" id="s2bri"
+        oninput="document.getElementById('s2briVal').innerText=this.value"
+        onchange="strip(2,'br',+this.value)">
+      <label>Efecto</label>
+      <div class="row">
+        <button class="btn btn-fx active" id="s2fx-0" onclick="strip(2,'ef',0)">&#9632;</button>
+        <button class="btn btn-fx" id="s2fx-1" onclick="strip(2,'ef',1)">Blink</button>
+        <button class="btn btn-fx" id="s2fx-2" onclick="strip(2,'ef',2)">Fade</button>
+        <button class="btn btn-fx" id="s2fx-3" onclick="strip(2,'ef',3)">&#127752;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nodo ESP-NOW -->
+  <div class="card">
+    <div class="card-title">
+      Nodo ESP32 &nbsp;
+      <span class="signal-dot disabled" id="signalDot"></span>&nbsp;
+      <span id="chipNode" class="chip off">--</span>
+    </div>
+    <div class="sensor-row">
+      <div>
+        <div style="font-size:.8em;color:var(--sub)">Luz</div>
+        <div style="font-weight:600" id="nodeLux">--</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:.8em;color:var(--sub)">PIR</div>
+        <div id="nodeMotion" class="chip off">--</div>
+      </div>
+    </div>
+    <div class="pir-pill">
+      <div class="pir-dot inactive" id="pirDot"></div>
+      <span id="pirLabel" style="font-size:.85em;color:var(--sub)">Sin movimiento</span>
+    </div>
+    <div class="sw-row">
+      <div class="sw-info">
+        <span class="sw-label">Sensor PIR</span>
+        <span class="sw-sub">Tira 2 reacciona al movimiento</span>
+      </div>
+      <label class="ios-sw">
+        <input type="checkbox" id="swPir" checked onchange="ble.togglePIR()">
+        <span class="ios-track"></span>
+      </label>
+    </div>
+    <div class="sw-row">
+      <div class="sw-info">
+        <span class="sw-label">Modo Auto Luz</span>
+        <span class="sw-sub">Tira 1 responde al sensor de luz</span>
+      </div>
+      <label class="ios-sw">
+        <input type="checkbox" id="swAuto" onchange="ble.toggleAutoMode()">
+        <span class="ios-track"></span>
+      </label>
+    </div>
+    <div class="sw-row">
+      <div class="sw-info">
+        <span class="sw-label">Nodo ESP-NOW</span>
+        <span class="sw-sub">Habilita la conexión con el nodo</span>
+      </div>
+      <label class="ios-sw">
+        <input type="checkbox" id="swNode" checked onchange="ble.toggleNode()">
+        <span class="ios-track"></span>
+      </label>
+    </div>
+  </div>
+
+  <!-- LED simple -->
+  <div class="card">
+    <div class="card-title">LED Simple GPIO2</div>
+    <div class="row">
+      <button class="btn btn-on" onclick="ble.toggleLED()">Toggle</button>
+    </div>
+    <div style="text-align:center;font-size:.85em;color:var(--sub)" id="gpioStatus">...</div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- Modal configuración de red -->
+<div class="modal-overlay" id="cfgModal" onclick="if(event.target===this)closeCfg()">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">&#9881; Configuración de red</span>
+      <button class="modal-close" onclick="closeCfg()">&#10005;</button>
+    </div>
+    <span class="sbadge err" id="wifiBadge">WiFi: no configurado</span>
+    <input class="inp" id="inpSsid" placeholder="Nombre de red (SSID)" type="text">
+    <input class="inp" id="inpPass" placeholder="Contraseña WiFi" type="password">
+    <button class="cfg-btn cfg-btn-primary" id="btnWifi" onclick="saveWifi()">
+      Guardar y conectar
+    </button>
+    <button class="cfg-btn cfg-btn-danger" onclick="clearWifi()">Borrar configuración WiFi</button>
+    <div class="cfg-div"></div>
+    <div id="mqttSection">
+      <span class="sbadge err" id="mqttBadge">MQTT: no configurado</span>
+      <input class="inp" id="inpBroker" placeholder="mqtt://192.168.x.x:1883" type="text">
+      <button class="cfg-btn cfg-btn-primary" id="btnMqtt" onclick="saveMqtt()">
+        Guardar y conectar
+      </button>
+      <button class="cfg-btn cfg-btn-danger" onclick="clearMqtt()">Borrar configuración MQTT</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { EspHomeBLE } from './ble-client.js';
+
+window.ble = new EspHomeBLE();
+
+// ─── Conexión BLE ────────────────────────────────────────────────────────────
+
+window.connectBLE = async function() {
+  const btn  = document.getElementById('btnConnect');
+  const dot  = document.getElementById('bleDot');
+  const txt  = document.getElementById('bleStatusText');
+
+  btn.disabled = true;
+  dot.className = 'ble-dot connecting';
+  txt.textContent = 'Buscando ESP-HOME...';
+
+  try {
+    await ble.connect();
+  } catch (e) {
+    dot.className = 'ble-dot';
+    txt.textContent = 'Error: ' + (e.message || 'Cancelado');
+    btn.disabled = false;
+    toast('No se pudo conectar: ' + (e.name === 'NotFoundError' ? 'dispositivo no encontrado' : e.message));
+  }
+};
+
+ble.on('connected', () => {
+  document.getElementById('ble-screen').style.display = 'none';
+  document.getElementById('main').style.display = 'block';
+  document.getElementById('bleConnDot').className = 'signal-dot online';
+  toast('Conectado a ESP-HOME &#x1F4F6;');
+});
+
+ble.on('disconnected', () => {
+  document.getElementById('bleConnDot').className = 'signal-dot offline';
+  toast('BLE desconectado — reconectando...');
+});
+
+// ─── Handlers de notify → UI update ─────────────────────────────────────────
+
+ble.on('led1', (state) => {
+  document.getElementById('gpioStatus').textContent =
+    'Estado: ' + (state ? 'ENCENDIDO' : 'APAGADO');
+});
+
+ble.on('strip1', (s) => updateStripUI(1, s));
+ble.on('strip2', (s) => updateStripUI(2, s));
+
+function updateStripUI(n, s) {
+  const on = !!s.s;
+  document.getElementById(`s${n}dot`).className = 'state-dot ' + (on ? 'on' : 'off');
+  document.getElementById(`s${n}state`).textContent = on ? 'ON' : 'OFF';
+  const hex = rgbToHex(s.r, s.g, s.b);
+  document.getElementById(`s${n}color`).value = hex;
+  document.getElementById(`s${n}preview`).style.background = hex;
+  document.getElementById(`s${n}bri`).value = s.br;
+  document.getElementById(`s${n}briVal`).textContent = s.br;
+  // Efecto activo
+  [0,1,2,3].forEach(i => {
+    document.getElementById(`s${n}fx-${i}`).classList.toggle('active', s.ef === i);
+  });
+}
+
+ble.on('lux', ({ dark, auto }) => {
+  document.getElementById('swAuto').checked = auto;
+});
+
+ble.on('node', ({ enabled, online, dark, motion, pir_enabled }) => {
+  const isOnline = enabled && online;
+  document.getElementById('signalDot').className =
+    'signal-dot ' + (enabled ? (isOnline ? 'online' : 'offline') : 'disabled');
+  const chip = document.getElementById('chipNode');
+  chip.textContent = enabled ? (isOnline ? 'ON' : 'OFFLINE') : 'OFF';
+  chip.className   = 'chip ' + (isOnline ? 'on' : 'off');
+  if (isOnline) {
+    document.getElementById('nodeLux').textContent = dark ? 'OSCURO' : 'LUZ';
+    const mc = document.getElementById('nodeMotion');
+    mc.textContent = motion ? 'MOVIMIENTO' : 'QUIETO';
+    mc.className   = 'chip ' + (motion ? 'motion' : 'off');
+    document.getElementById('pirDot').className   = 'pir-dot ' + (motion ? 'active' : 'inactive');
+    document.getElementById('pirLabel').textContent = motion ? 'Movimiento detectado' : 'Sin movimiento';
+  }
+  document.getElementById('swPir').checked  = pir_enabled;
+  document.getElementById('swNode').checked = enabled;
+});
+
+ble.on('pir', ({ enabled, motion, keep_on }) => {
+  document.getElementById('swPir').checked = enabled;
+});
+
+ble.on('netStatus', ({ wc, ws, mc, mb }) => {
+  updateNetStatusUI(wc, ws, mc, mb);
+});
+
+ble.on('wifiResult', (ok) => {
+  const btn = document.getElementById('btnWifi');
+  btn.disabled = false;
+  btn.textContent = 'Guardar y conectar';
+  toast(ok ? 'WiFi conectado ✓' : 'No se pudo conectar al WiFi');
+});
+
+ble.on('mqttResult', (ok) => {
+  const btn = document.getElementById('btnMqtt');
+  btn.disabled = false;
+  btn.textContent = 'Guardar y conectar';
+  toast(ok ? 'MQTT conectado ✓' : 'No se pudo conectar al broker MQTT');
+});
+
+// ─── Comandos de tira ────────────────────────────────────────────────────────
+
+window.strip = async function(n, key, val) {
+  const cfg = {};
+  cfg[key] = val;
+  await ble.setStrip(n, cfg).catch(e => toast('Error: ' + e.message));
+};
+
+window.stripColor = function(n) {
+  const hex = document.getElementById(`s${n}color`).value;
+  document.getElementById(`s${n}preview`).style.background = hex;
+  const {r,g,b} = hexToRgb(hex);
+  ble.setStrip(n, {r,g,b}).catch(e => toast('Error: ' + e.message));
+};
+
+// ─── Modal configuración de red ──────────────────────────────────────────────
+
+window.openCfg = function() {
+  document.getElementById('cfgModal').classList.add('open');
+  // El estado de red ya está en ble.state.netStatus por notify
+  const { wc, ws, mc, mb } = ble.state.netStatus;
+  updateNetStatusUI(wc, ws, mc, mb);
+};
+window.closeCfg = () => document.getElementById('cfgModal').classList.remove('open');
+
+function updateNetStatusUI(wc, ws, mc, mb) {
+  const wb = document.getElementById('wifiBadge');
+  const mb_ = document.getElementById('mqttBadge');
+  if (wc) {
+    wb.className = 'sbadge ok';
+    wb.textContent = 'WiFi: ' + ws;
+  } else {
+    wb.className = 'sbadge err';
+    wb.textContent = ws ? 'WiFi: no conectado' : 'WiFi: no configurado';
+  }
+  if (mc) {
+    mb_.className = 'sbadge ok';
+    mb_.textContent = 'MQTT: ' + mb;
+  } else {
+    mb_.className = 'sbadge err';
+    mb_.textContent = mb ? 'MQTT: no conectado' : 'MQTT: no configurado';
+  }
+  if (ws) document.getElementById('inpSsid').value = ws;
+  if (mb) document.getElementById('inpBroker').value = mb;
+}
+
+window.saveWifi = async function() {
+  const ssid = document.getElementById('inpSsid').value.trim();
+  const pass = document.getElementById('inpPass').value;
+  if (!ssid) { toast('Ingresá el SSID'); return; }
+  const btn = document.getElementById('btnWifi');
+  btn.disabled = true;
+  btn.textContent = 'Conectando...';
+  await ble.setWiFi(ssid, pass).catch(e => {
+    btn.disabled = false;
+    btn.textContent = 'Guardar y conectar';
+    toast('Error: ' + e.message);
+  });
+  // El resultado llega por notify 'wifiResult'
+};
+
+window.clearWifi = async function() {
+  if (!confirm('¿Borrar configuración WiFi?')) return;
+  await ble.clearWiFi();
+  toast('WiFi borrado');
+};
+
+window.saveMqtt = async function() {
+  const broker = document.getElementById('inpBroker').value.trim();
+  if (!broker) { toast('Ingresá el broker'); return; }
+  const btn = document.getElementById('btnMqtt');
+  btn.disabled = true;
+  btn.textContent = 'Conectando...';
+  await ble.setMQTT(broker).catch(e => {
+    btn.disabled = false;
+    btn.textContent = 'Guardar y conectar';
+    toast('Error: ' + e.message);
+  });
+};
+
+window.clearMqtt = async function() {
+  if (!confirm('¿Borrar configuración MQTT?')) return;
+  await ble.clearMQTT();
+  toast('MQTT borrado');
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+window.toast = function(msg, dur=2200) {
+  const t = document.getElementById('toast');
+  t.innerHTML = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), dur);
+};
+
+function hexToRgb(h) {
+  return {
+    r: parseInt(h.slice(1,3),16),
+    g: parseInt(h.slice(3,5),16),
+    b: parseInt(h.slice(5,7),16),
+  };
+}
+function rgbToHex(r,g,b) {
+  return '#' + [r,g,b].map(x => x.toString(16).padStart(2,'0')).join('');
+}
+</script>
+</body>
+</html>

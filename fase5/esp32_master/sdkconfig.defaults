@@ -1,0 +1,37 @@
+# sdkconfig.defaults — ESP-HOME BLE
+# Copiar este archivo a la raíz del proyecto como sdkconfig.defaults
+# Ejecutar: idf.py reconfigure   (o borrar sdkconfig y hacer idf.py build)
+
+# ─── Bluetooth ────────────────────────────────────────────────────────────────
+CONFIG_BT_ENABLED=y
+CONFIG_BT_CONTROLLER_MODE_BLE_ONLY=y
+
+# Usar NimBLE (más liviano que Bluedroid, menor RAM)
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=n
+
+# Una sola conexión (un teléfono a la vez)
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+
+# MTU máximo — necesario para payloads JSON sin fragmentar
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=512
+
+# Pool de mbufs para BLE (aumentar si hay errores de mbuf alloc)
+CONFIG_BT_NIMBLE_MSYS1_BLOCK_COUNT=12
+
+# Nombre del dispositivo por defecto (puede sobreescribirse en código)
+CONFIG_BT_NIMBLE_SVC_GAP_DEVICE_NAME="ESP-HOME"
+
+# ─── WiFi ─────────────────────────────────────────────────────────────────────
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=8
+
+# ─── NVS ──────────────────────────────────────────────────────────────────────
+CONFIG_NVS_ENCRYPTION=n
+
+# ─── Heap / memoria ───────────────────────────────────────────────────────────
+# NimBLE necesita ~50KB heap. Asegurarse de no agotar con MQTT + LED tasks.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# ─── Log level ────────────────────────────────────────────────────────────────
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
