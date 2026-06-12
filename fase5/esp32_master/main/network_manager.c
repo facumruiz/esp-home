@@ -17,7 +17,7 @@
 #include "config_manager.h"
 #include "mqtt_manager.h"
 #include "config.h"
-#include "ble_server.h"          // para ble_server_notify_net_status()
+#include "ble_server.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
@@ -28,7 +28,7 @@
 #include <string.h>
 
 static const char *TAG = "NM";
-static nm_state_t s_state = NM_STATE_AP;   // AP = "sin red" en BLE mode
+static nm_state_t s_state = NM_STATE_AP;
 static EventGroupHandle_t s_wifi_eg;
 static esp_netif_t *s_netif_sta = NULL;
 static bool s_auto_reconnect = true;
@@ -41,8 +41,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
     if (base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         ESP_LOGW(TAG, "STA desconectado");
         xEventGroupSetBits(s_wifi_eg, WIFI_FAIL_BIT);
-
-        // Auto-reconexión: si la desconexión no fue intencional
         if (s_auto_reconnect && s_state == NM_STATE_STA) {
             ESP_LOGI(TAG, "Intentando reconexión automática...");
             esp_wifi_connect();
@@ -55,6 +53,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
     }
 }
 
+static void nm_auto_connect_task(void *arg) {
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    nm_connect_sta();
+    vTaskDelete(NULL);
+}
+
 void nm_init(Controller *ctrl) {
     (void)ctrl;
     s_wifi_eg = xEventGroupCreate();
@@ -62,7 +66,6 @@ void nm_init(Controller *ctrl) {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    // Solo STA — sin AP
     s_netif_sta = esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -78,16 +81,10 @@ void nm_init(Controller *ctrl) {
 
     ESP_LOGI(TAG, "WiFi STA iniciado (sin AP)");
 
-    // Si hay credenciales guardadas, conectar automáticamente
     char ssid[64] = {0}, pass[64] = {0};
     if (config_get_wifi(ssid, pass)) {
-        ESP_LOGI(TAG, "Credenciales NVS encontradas (%s) — intentando conexión automática", ssid);
-        // Conexión async para no bloquear app_main
-        xTaskCreate([](void *arg) {
-            vTaskDelay(pdMS_TO_TICKS(1000)); // esperar que el stack esté listo
-            nm_connect_sta();
-            vTaskDelete(NULL);
-        }, "nm_auto_conn", 4096, NULL, 3, NULL);
+        ESP_LOGI(TAG, "Credenciales NVS encontradas (%s) — conexión automática", ssid);
+        xTaskCreate(nm_auto_connect_task, "nm_auto_conn", 4096, NULL, 3, NULL);
     }
 }
 
@@ -99,7 +96,7 @@ bool nm_connect_sta(void) {
         return false;
     }
 
-    s_auto_reconnect = false; // desactivar durante el intento de conexión
+    s_auto_reconnect = false;
     s_state = NM_STATE_CONNECTING;
 
     wifi_config_t sta_cfg = {0};
@@ -119,17 +116,16 @@ bool nm_connect_sta(void) {
         s_auto_reconnect = true;
         ESP_LOGI(TAG, "WiFi STA conectado a %s", ssid);
 
-        // Intentar MQTT si hay broker guardado
         char broker[128] = {0};
         if (config_get_mqtt(broker)) {
-            nm_connect_mqtt(NULL); // ctrl ya lo conoce mqtt_manager internamente
+            nm_connect_mqtt(NULL);
         }
 
         ble_server_notify_net_status();
         return true;
     }
 
-    s_state = NM_STATE_AP; // AP en modo BLE = "sin red"
+    s_state = NM_STATE_AP;
     ESP_LOGW(TAG, "WiFi STA falló para %s", ssid);
     ble_server_notify_net_status();
     return false;
@@ -158,7 +154,6 @@ bool nm_connect_mqtt(Controller *ctrl) {
 }
 
 void nm_task(void *pvParameters) {
-    // Task de mantenimiento: reintenta MQTT si se pierde conexión
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(30000));
         if (s_state == NM_STATE_STA && !mqtt_manager_is_connected()) {

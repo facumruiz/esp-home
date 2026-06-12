@@ -11,7 +11,7 @@ idf_component_register(
         "config_manager.c"
         "mqtt_manager.c"
         "espnow_master.c"
-        "webserver.c"
+        "ble_server.c"
         "oled_display.c"
         "qrcodegen.c"
         "u8g2_esp32_hal.c"
@@ -19,6 +19,7 @@ idf_component_register(
     INCLUDE_DIRS "." "u8g2"
     REQUIRES
         esp_wifi esp_event esp_netif nvs_flash
-        esp_http_server json led_strip mqtt
+        json led_strip mqtt
         driver esp_timer
+        bt
 )
